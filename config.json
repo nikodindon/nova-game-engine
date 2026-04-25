@@ -1,0 +1,8 @@
+{
+  "provider": "llama-server",
+  "model": "Meta-Llama-3-8B-Instruct-Q4_K_M.gguf",
+  "base_url": "http://localhost:8081",
+  "timeout": 300,
+  "temperature": 0.1,
+  "max_out_tokens": 4096
+}
