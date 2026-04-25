@@ -48,12 +48,10 @@ Le moteur necessite un serveur LLM local. Deux options :
 ### Option A : llama-server (recommandee, meme setup que Nova-Atlas)
 
 ```bash
-# 1. Telecharge un modele GGUF
-mkdir -p ~/llm_models/llama3-8b
-# Telecharge Meta-Llama-3-8B-Instruct-Q4_K_M.gguf depuis HuggingFace
-# ou utilise un modele plus leger pour laptop (Mistral 7B Q5, etc.)
+# Telecharge un modele GGUF depuis HuggingFace
+# Garde le dans ~/llm_models/<model>/
 
-# 2. Lance llama-server
+# Lance llama-server (CPU only = -ngl 0)
 llama-server \
   -m ~/llm_models/llama3-8b/Meta-Llama-3-8B-Instruct-Q4_K_M.gguf \
   -c 8192 \
@@ -62,15 +60,86 @@ llama-server \
   --host 127.0.0.1 \
   --port 8081
 
-# Le flag -ngl 0 = CPU only (pas de GPU needed)
-# -tb 12 = 12 threads CPU
+# Flags :
+#   -ngl 0   = CPU only (pas de GPU needed)
+#   -tb 12   = 12 threads CPU (ajuste selon ton CPU)
+#   -c 8192  = context size (minimum pour que Critic puisse verifier plusieurs fichiers)
 ```
 
 ### Option B : Ollama CLI
 
 ```bash
 # Installe Ollama, puis :
-ollama pull qwen2.5-coder:7b   # ou autre modele
+ollama pull qwen2.5-coder:7b
+```
+
+---
+
+## Progression des modeles — "crescendo"
+
+On progresse du plus faible au plus fort pour comprendre progressivement
+les limites et les seuils de capacite. Chaque palier doit arriver
+a produire un Space Invaders jouable.
+
+| Niveau | Modele | Taille | Objectif |
+|--------|--------|--------|----------|
+| 1 | Qwen2.5-Coder 1.5B Q8 | ~1.6Go | Spec tres simple, code minimal |
+| 2 | Qwen2.5-Coder 3B Q6 | ~2.5Go | Spec complete, code jouable (peut louper des features) |
+| 3 | Qwen2.5-Coder 7B Q5 | ~4.5Go | Bon code, moins de bugs, imports OK |
+| 4 | Llama3 8B IQ3_M | ~3.3Go | Meilleur raisonnement architectural |
+| 5 | Llama3 8B Q4_K_M | ~4.9Go | Notre baseline stable |
+| 6 | Llama3 8B Q5_K_M | ~5.7Go | Qualite max CPU |
+
+**Echelle Laptop** : PC standard, CPU only, 12 threads, 11Go RAM.
+
+### Telechargement models (HuggingFace CLI)
+
+```bash
+# Niveau 1 - Qwen2.5-Coder 1.5B Q8 (~1.6Go)
+huggingface-cli download Qwen/Qwen2.5-Coder-1.5B-Instruct-Q8_0.gguf \
+  --local-dir ~/llm_models/qwen-1.5b \
+  --local-dir-use-symlinks False
+
+# Niveau 2 - Qwen2.5-Coder 3B Q6 (~2.5Go)
+huggingface-cli download Qwen/Qwen2.5-Coder-3B-Instruct-Q6_K.gguf \
+  --local-dir ~/llm_models/qwen-3b \
+  --local-dir-use-symlinks False
+
+# Niveau 3 - Qwen2.5-Coder 7B Q5 (~4.5Go)
+huggingface-cli download Qwen/Qwen2.5-Coder-7B-Instruct-Q5_K_M.gguf \
+  --local-dir ~/llm_models/qwen-7b \
+  --local-dir-use-symlinks False
+
+# Niveaux 4-6 - Llama3 8B (deja telecharges)
+# ~/llm_models/llama3-8b/Meta-Llama-3-8B-Instruct-*.gguf
+```
+
+---
+
+## Strategie multi-modele par agent
+
+Chaque agent a un role different — un modele adapte peut etre plus
+efficace qu'un seul modele pour tout.
+
+| Agent | Modele recommande | Pourquoi |
+|-------|------------------|---------|
+| **Architect** | Llama3 8B (Q4+) | Bon raisonnement structure, spec bien organisee |
+| **Coder** | Qwen2.5-Coder 3B+ | Spécifique code Python, meilleurs imports/utils |
+| **Critic** | Llama3 8B (Q4+) | Contexte long, analyse fine de plusieurs fichiers |
+| **Planner** | N'importe quel modele (3B+) | JSON borne, prompt court |
+
+**Config multi-modele (avance, pour apres les tests) :**
+
+```json
+{
+  "agents": {
+    "architect": {"model": "Meta-Llama-3-8B-Instruct-Q4_K_M.gguf", "provider": "llama-server"},
+    "coder":     {"model": "Qwen2.5-Coder-7B-Instruct-Q5_K_M.gguf", "provider": "llama-server"},
+    "critic":    {"model": "Meta-Llama-3-8B-Instruct-Q4_K_M.gguf", "provider": "llama-server"},
+    "planner":   {"model": "Qwen2.5-Coder-3B-Instruct-Q6_K.gguf", "provider": "llama-server"}
+  },
+  "default_base_url": "http://localhost:8081"
+}
 ```
 
 ---
@@ -81,7 +150,7 @@ ollama pull qwen2.5-coder:7b   # ou autre modele
 # Generer un jeu depuis un prompt
 python main.py "Space Invaders avec des aliens pixel art et des explosions"
 
-# Donner un nom de session
+# Avec un modele specifique (remplace dans config.json d'abord)
 python main.py --session stellar-siege "Breakout game avec power-ups"
 
 # Lister les sessions passees
@@ -91,16 +160,16 @@ python main.py --list
 python main.py --play stellar-siege_20250425_143022
 ```
 
+Pour changer de modele : edite `config.json` puis relance `main.py`.
+
 ---
 
 ## Configuration
 
-Editer `config.json` :
-
 ```json
 {
   "provider": "llama-server",
-  "model": "Meta-Llama-3-8B-Instruct-Q4_K_M.gguf",
+  "model": "Qwen2.5-Coder-3B-Instruct-Q6_K.gguf",
   "base_url": "http://localhost:8081",
   "timeout": 300,
   "temperature": 0.1,
@@ -108,18 +177,12 @@ Editer `config.json` :
 }
 ```
 
-Pour Ollama (Option B) :
-
-```json
-{
-  "provider": "ollama",
-  "model": "qwen2.5-coder:7b",
-  "base_url": "http://localhost:11434",
-  "timeout": 300,
-  "temperature": 0.1,
-  "max_out_tokens": 4096
-}
-```
+| Param | Description |
+|-------|-------------|
+| provider | `llama-server` (recommandee) ou `ollama` |
+| model | Fichier GGUF dans ~/llm_models/ |
+| base_url | localhost:8081 (llama-server) ou localhost:11434 (ollama) |
+| temperature | 0.1 recommande (0 = boucles, 0.5+ = hors spec) |
 
 ---
 
@@ -150,16 +213,11 @@ Sessions sauvegardees dans `~/nova-game-engine/sessions/<session_name>/` :
 
 ---
 
-## Modeles testes
+## Journal de tests
 
-| Modele | Format | Taille | Laptop (CPU) | Remarks |
-|--------|--------|--------|-------------|---------|
-| Meta-Llama-3-8B-Instruct | Q4_K_M | ~4.9Go | Lent (30s/token) | Fonctionne |
-| Meta-Llama-3-8B-Instruct | Q5_K_M | ~5.7Go | Tres lent | Fonctionne |
-| Meta-Llama-3-8B-Instruct | IQ3_M | ~3.3Go | Plus rapide | Fonctionne |
-| Mistral-7B-Instruct | Q5 (??? Go) | ??? | Non teste | GGUF disponible |
-
-**Laptop de test** : PC standard, CPU only, pas de GPU dedie.
+| Date | Modele | Niveau | Spec OK | Code OK | Jouable | Notes |
+|------|--------|--------|---------|---------|---------|-------|
+| 2026-04-25 | (pas encore teste) | - | - | - | - | - |
 
 ---
 
@@ -170,16 +228,14 @@ Sessions sauvegardees dans `~/nova-game-engine/sessions/<session_name>/` :
 - Context size 8192 est le minimum pour que le Critic puisse verifier
   plusieurs fichiers en une seule passe.
 - Threads (`-tb`) : autant que de cores dispo (8-12 sur un laptop recent).
-- Quantization IQ3_M donne le meilleur compromis vitesse/qualite sur CPU.
-- Q4_K_M est le plus stable.
-- premiere generation de spec = ~30-60s
+- premiere generation de spec = ~30-60s (selon modele)
 - cycle de fix = ~20-40s selon longueur du fix
 
-### Pièges observés
+### Pieges observes
 
 - Le Coder LLM parfois ne parse pas correctement le tool call `write_file`
-  → le critic detecte le fichier manquant -> deuxieme cycle corrige
-- Modell llama3-8b a tendance agenerate des `import pygame` en double
+  -> le critic detecte le fichier manquant -> deuxieme cycle corrige
+- Llama3-8b a tendance a generate des `import pygame` en double
   dans certains fichiers -> Critic le detecte
 - Temperature 0.1 obligatoire : a 0 le modele peut boucler sur
   des patterns repetitifs, a 0.5+ il sort du code hors spec
