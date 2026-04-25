@@ -147,17 +147,25 @@ efficace qu'un seul modele pour tout.
 ## Utilisation
 
 ```bash
-# Generer un jeu depuis un prompt
+# Generer un jeu (auto-lance a la fin)
 python main.py "Space Invaders avec des aliens pixel art et des explosions"
 
-# Avec un modele specifique (remplace dans config.json d'abord)
+# Generer sans lancer le jeu (pour analyser les fichiers)
+python main.py --no-play "Space Invaders minimal"
+
+# Mode debug — log complet de tous les prompts/responses LLM
+python main.py --debug "Space Invaders minimal"
+
+# Avec un nom de session
 python main.py --session stellar-siege "Breakout game avec power-ups"
 
 # Lister les sessions passees
 python main.py --list
 
-# Rejouer une session
+# Rejouer une session existante
 python main.py --play stellar-siege_20250425_143022
+
+# Changer de modele — edite config.json puis relance
 ```
 
 Pour changer de modele : edite `config.json` puis relance `main.py`.
@@ -209,7 +217,23 @@ nova-game-engine/
 Sessions sauvegardees dans `~/nova-game-engine/sessions/<session_name>/` :
 - `SPEC.md` -- spec originale
 - `result.txt` -- verdict + review du Critic
+- `debug.log` -- log complet JSON Lines (avec --debug)
 - `game/` -- les fichiers Python du jeu
+
+### Format du debug.log
+
+Chaque ligne = un evenement JSON horodate :
+
+```json
+{"ts": "2026-04-25T15:30:01.123", "event": "LLM_REQ", "step": "ARCHITECT", "data": {...}}
+{"ts": "2026-04-25T15:30:45.567", "event": "LLM_RESP", "step": "ARCHITECT", "data": {...}}
+{"ts": "2026-04-25T15:31:02.890", "event": "FILE_GENERATED", "step": "CODER", "data": {...}}
+{"ts": "2026-04-25T15:31:30.001", "event": "VERDICT", "step": "CRITIC", "data": {...}}
+```
+
+Evenements : `SESSION_START`, `LLM_REQ`, `LLM_RESP`, `FILE_GENERATED`, `VERDICT`, `DEBUG`, `INFO`, `ERROR`, `SESSION_DONE`.
+
+En mode normal (sans --debug) : `LLM_REQ` et `LLM_RESP` ne contiennent que les meta-donnees (duree, taille) mais pas le prompt/reponse complet. Avec `--debug` : tout est logge.
 
 ---
 
@@ -218,6 +242,18 @@ Sessions sauvegardees dans `~/nova-game-engine/sessions/<session_name>/` :
 | Date | Modele | Niveau | Spec OK | Code OK | Jouable | Notes |
 |------|--------|--------|---------|---------|---------|-------|
 | 2026-04-25 | (pas encore teste) | - | - | - | - | - |
+
+### Telechargements en cours
+
+Trois modeles Qwen en telechargement (HuggingFace -> ~/llm_models/) :
+
+```
+qwen-1.5b/  Qwen2.5-Coder-1.5B-Instruct-Q8_0.gguf   (~1.6Go) — en telechargement
+qwen-3b/    Qwen2.5-Coder-3B-Instruct-Q6_K.gguf    (~2.5Go) — en telechargement
+qwen-7b/    Qwen2.5-Coder-7B-Instruct-Q5_K_M.gguf  (~4.5Go) — en telechargement
+```
+
+Verifier l'avancement : `ls -lh ~/llm_models/qwen-*/`
 
 ---
 
