@@ -1,16 +1,26 @@
 """Architect — prompt → structured spec.md."""
 import os
+import time
 from .prompts import ARCHITECT
 
 
 class Architect:
-    def __init__(self, llm_client, config):
+    def __init__(self, llm_client, config, log=None):
         self.llm = llm_client
         self.config = config
+        self.log = log
 
-    def build_spec(self, prompt, output_dir):
+    def build_spec(self, prompt):
         full_prompt = f"# User request:\n{prompt}\n\nWrite the project specification."
+        if self.log:
+            self.log.llm_request("ARCHITECT", "architect", self.config.get("model"), full_prompt, system=ARCHITECT)
+
+        start = time.time()
         spec_md = self.llm.complete(full_prompt, system=ARCHITECT)
+        duration = time.time() - start
+
+        if self.log:
+            self.log.llm_response("ARCHITECT", "architect", self.config.get("model"), spec_md, duration)
         return spec_md
 
     @staticmethod

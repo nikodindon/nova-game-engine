@@ -1,16 +1,18 @@
 """Critic — verifies spec against generated files."""
 import os
 import re
+import time
 from .prompts import CRITIC
 
 
 class Critic:
-    def __init__(self, llm_client, config):
+    def __init__(self, llm_client, config, log=None):
         self.llm = llm_client
+        self.config = config
+        self.log = log
 
     def review(self, spec_md, generated_files, output_dir):
         """Review all files and return (verdict, issues)."""
-        # Load all file contents
         file_snapshots = {}
         for fname in generated_files:
             path = os.path.join(output_dir, fname)
@@ -29,15 +31,21 @@ class Critic:
             "Review strictly. Output checklist + verdict."
         )
 
-        response = self.llm.complete(prompt, system=CRITIC)
+        if self.log:
+            self.log.llm_request("CRITIC", "critic", self.config.get("model"), prompt, system=CRITIC)
 
-        # Extract verdict
+        start = time.time()
+        response = self.llm.complete(prompt, system=CRITIC)
+        duration = time.time() - start
+
+        if self.log:
+            self.log.llm_response("CRITIC", "critic", self.config.get("model"), response, duration)
+
         if "ALL_COMPLETE" in response:
             verdict = "ALL_COMPLETE"
             issues = []
         else:
             verdict = "NEEDS_FIXES"
-            # Extract top issues from response
             issues = self._extract_issues(response)
 
         return verdict, response, issues
