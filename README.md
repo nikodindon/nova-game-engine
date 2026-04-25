@@ -1,144 +1,69 @@
 # Nova Game Engine
 
-Generateur de jeux Python + Pygame depuis un prompt en langage naturel.
-Architect -> Coder -> Critic en boucle, 100% local.
+**Générateur de jeux Python + Pygame depuis un prompt en langage naturel.**
+100% local —LLMs locaux uniquement, zéro cloud.
+
+Le moteur analyse une demande en langage naturel, produit une spécification détaillée, génère le code Python, le vérifie, et le corrige automatiquement. Résultat : un jeu jouable en quelques minutes.
 
 ---
 
-## Comment ca marche
+## Principe
 
 ```
-User prompt  ->  Architect  ->  SPEC.md
-                             ->
-                        Coder genere
-                             ->
-                        Critic verifie
-                             ->
-                   [boucle fix x 3 si besoin]
-                             ->
-                          Joue !
+Prompt → Architect → SPEC.md (détaillée, vérifiable)
+                   ↓
+              Coder → fichiers .py (complets, syntaxiquement valides)
+                   ↓
+              Critic → check list feature par feature
+                   ↓
+         [boucle fix × 3 si nécessaire]
+                   ↓
+                Joue !
 ```
 
-1. **Architect** - Analyse le prompt, produit un SPEC.md structure
-2. **Coder** - Genere chaque fichier Python depuis la spec (pattern tool call)
-3. **Critic** - Verifie que chaque feature de la spec est implementee
-4. **Planner** - Produit un plan de fix si le Critic trouve des problemes
-5. Boucle: Coder corrige -> Critic re-verifie (max 3 tours)
+Chaque agent est un LLM dédié. Les prompts sont pensés pour des modèles de 3B+ sur CPU.
 
 ---
 
-## Install
+## Installation
 
 ```bash
-# Dependances systeme
-pip install pygame numpy
-
-# Ce projet
 git clone https://github.com/nikodindon/nova-game-engine.git
 cd nova-game-engine
 pip install -r requirements.txt
 ```
 
+**Dépendances :** `pygame`, `numpy`.
+
 ---
 
-## LLM local — Setup obligatoire
+## LLM local — Setup
 
-Le moteur necessite un serveur LLM local. Deux options :
+Le moteur exige un serveur LLM local. Tous les modèles GGUF fonctionnent.
 
-### Option A : llama-server (recommandee, meme setup que Nova-Atlas)
+### Lance un serveur (exemple avec Qwen 3B sur port 8082)
 
 ```bash
-# Telecharge un modele GGUF depuis HuggingFace
-# Garde le dans ~/llm_models/<model>/
-
-# Lance llama-server (CPU only = -ngl 0)
 llama-server \
-  -m ~/llm_models/llama3-8b/Meta-Llama-3-8B-Instruct-Q4_K_M.gguf \
+  -m ~/llm_models/qwen-3b/Qwen2.5-Coder-3B-Instruct-Q6_K.gguf \
   -c 8192 \
   -tb 12 \
   -ngl 0 \
-  --host 127.0.0.1 \
-  --port 8081
-
-# Flags :
-#   -ngl 0   = CPU only (pas de GPU needed)
-#   -tb 12   = 12 threads CPU (ajuste selon ton CPU)
-#   -c 8192  = context size (minimum pour que Critic puisse verifier plusieurs fichiers)
+  --port 8082
 ```
 
-### Option B : Ollama CLI
+### Configure
 
-```bash
-# Installe Ollama, puis :
-ollama pull qwen2.5-coder:7b
-```
-
----
-
-## Progression des modeles — "crescendo"
-
-On progresse du plus faible au plus fort pour comprendre progressivement
-les limites et les seuils de capacite. Chaque palier doit arriver
-a produire un Space Invaders jouable.
-
-| Niveau | Modele | Taille | Objectif |
-|--------|--------|--------|----------|
-| 1 | Qwen2.5-Coder 1.5B Q8 | ~1.6Go | Spec tres simple, code minimal |
-| 2 | Qwen2.5-Coder 3B Q6 | ~2.5Go | Spec complete, code jouable (peut louper des features) |
-| 3 | Qwen2.5-Coder 7B Q5 | ~4.5Go | Bon code, moins de bugs, imports OK |
-| 4 | Llama3 8B IQ3_M | ~3.3Go | Meilleur raisonnement architectural |
-| 5 | Llama3 8B Q4_K_M | ~4.9Go | Notre baseline stable |
-| 6 | Llama3 8B Q5_K_M | ~5.7Go | Qualite max CPU |
-
-**Echelle Laptop** : PC standard, CPU only, 12 threads, 11Go RAM.
-
-### Telechargement models (HuggingFace CLI)
-
-```bash
-# Niveau 1 - Qwen2.5-Coder 1.5B Q8 (~1.6Go)
-huggingface-cli download Qwen/Qwen2.5-Coder-1.5B-Instruct-Q8_0.gguf \
-  --local-dir ~/llm_models/qwen-1.5b \
-  --local-dir-use-symlinks False
-
-# Niveau 2 - Qwen2.5-Coder 3B Q6 (~2.5Go)
-huggingface-cli download Qwen/Qwen2.5-Coder-3B-Instruct-Q6_K.gguf \
-  --local-dir ~/llm_models/qwen-3b \
-  --local-dir-use-symlinks False
-
-# Niveau 3 - Qwen2.5-Coder 7B Q5 (~4.5Go)
-huggingface-cli download Qwen/Qwen2.5-Coder-7B-Instruct-Q5_K_M.gguf \
-  --local-dir ~/llm_models/qwen-7b \
-  --local-dir-use-symlinks False
-
-# Niveaux 4-6 - Llama3 8B (deja telecharges)
-# ~/llm_models/llama3-8b/Meta-Llama-3-8B-Instruct-*.gguf
-```
-
----
-
-## Strategie multi-modele par agent
-
-Chaque agent a un role different — un modele adapte peut etre plus
-efficace qu'un seul modele pour tout.
-
-| Agent | Modele recommande | Pourquoi |
-|-------|------------------|---------|
-| **Architect** | Llama3 8B (Q4+) | Bon raisonnement structure, spec bien organisee |
-| **Coder** | Qwen2.5-Coder 3B+ | Spécifique code Python, meilleurs imports/utils |
-| **Critic** | Llama3 8B (Q4+) | Contexte long, analyse fine de plusieurs fichiers |
-| **Planner** | N'importe quel modele (3B+) | JSON borne, prompt court |
-
-**Config multi-modele (avance, pour apres les tests) :**
+Édite `config.json` :
 
 ```json
 {
-  "agents": {
-    "architect": {"model": "Meta-Llama-3-8B-Instruct-Q4_K_M.gguf", "provider": "llama-server"},
-    "coder":     {"model": "Qwen2.5-Coder-7B-Instruct-Q5_K_M.gguf", "provider": "llama-server"},
-    "critic":    {"model": "Meta-Llama-3-8B-Instruct-Q4_K_M.gguf", "provider": "llama-server"},
-    "planner":   {"model": "Qwen2.5-Coder-3B-Instruct-Q6_K.gguf", "provider": "llama-server"}
-  },
-  "default_base_url": "http://localhost:8081"
+  "provider": "llama-server",
+  "model": "Qwen2.5-Coder-3B-Instruct-Q6_K",
+  "base_url": "http://localhost:8082",
+  "timeout": 300,
+  "temperature": 0.1,
+  "max_out_tokens": 4096
 }
 ```
 
@@ -147,150 +72,216 @@ efficace qu'un seul modele pour tout.
 ## Utilisation
 
 ```bash
-# Generer un jeu (auto-lance a la fin)
-python main.py "Space Invaders avec des aliens pixel art et des explosions"
+# Génère et lance automatiquement
+python main.py "Space Invaders minimal avec son"
 
-# Generer sans lancer le jeu (pour analyser les fichiers)
-python main.py --no-play "Space Invaders minimal"
+# Génère sans lancer (analyse les fichiers)
+python main.py --no-play "Breakout avec power-ups"
 
-# Mode debug — log complet de tous les prompts/responses LLM
-python main.py --debug "Space Invaders minimal"
+# Mode debug — log complet de tous les prompts/responses
+python main.py --debug "Pong à deux joueurs"
 
 # Avec un nom de session
-python main.py --session stellar-siege "Breakout game avec power-ups"
+python main.py --session tetris "Tetris avec niveaux de difficulté"
 
-# Lister les sessions passees
+# Lister les sessions passées
 python main.py --list
 
 # Rejouer une session existante
-python main.py --play stellar-siege_20250425_143022
-
-# Changer de modele — edite config.json puis relance
+python main.py --play ma_session_20250425_143022
 ```
-
-Pour changer de modele : edite `config.json` puis relance `main.py`.
 
 ---
 
-## Configuration
+## Modèles recommandés
 
-```json
-{
-  "provider": "llama-server",
-  "model": "Qwen2.5-Coder-3B-Instruct-Q6_K.gguf",
-  "base_url": "http://localhost:8081",
-  "timeout": 300,
-  "temperature": 0.1,
-  "max_out_tokens": 4096
-}
+| Agent | Modèle | Pourquoi |
+|-------|--------|----------|
+| **Architect** | Qwen2.5-Coder 7B ou Llama3 8B | Raisonnement architectural, specs bien structurées |
+| **Coder** | Qwen2.5-Coder 3B minimum | Spécifique Python, imports corrects |
+| **Critic** | Qwen2.5-Coder 3B+ | Contexte long pour analyser plusieurs fichiers |
+| **Planner** | N'importe quel 3B+ | JSON borné, prompt court |
+
+Le 1.5B produit des specs vagues et du code corrompu. Utiliser pour des tâches triviales uniquement.
+
+### Modèles déjà téléchargés
+
+```
+~/llm_models/qwen-1.5b/Qwen2.5-Coder-1.5B-Instruct-Q8_0.gguf   (1.6Go) → :8081
+~/llm_models/qwen-3b/Qwen2.5-Coder-3B-Instruct-Q6_K.gguf       (2.4Go) → :8082
+~/llm_models/qwen-7b/Qwen2.5-Coder-7B-Instruct-Q5_K_M.gguf     (5.1Go) → pret
 ```
 
-| Param | Description |
-|-------|-------------|
-| provider | `llama-server` (recommandee) ou `ollama` |
-| model | Fichier GGUF dans ~/llm_models/ |
-| base_url | localhost:8081 (llama-server) ou localhost:11434 (ollama) |
-| temperature | 0.1 recommande (0 = boucles, 0.5+ = hors spec) |
+```bash
+# Qwen 3B sur port 8082
+llama-server -m ~/llm_models/qwen-3b/Qwen2.5-Coder-3B-Instruct-Q6_K.gguf \
+  -c 8192 -tb 12 -ngl 0 --port 8082
+
+# Qwen 7B sur port 8083
+llama-server -m ~/llm_models/qwen-7b/Qwen2.5-Coder-7B-Instruct-Q5_K_M.gguf \
+  -c 8192 -tb 12 -ngl 0 --port 8083
+```
 
 ---
 
-## Architecture
+## Architecture du projet
 
 ```
 nova-game-engine/
-├── main.py              # CLI + boucle principale
-├── config.json          # Config LLM (provider, modele, URL)
+├── main.py              # CLI + boucle principale + DebugLogger
+├── config.json          # Config LLM (provider, modèle, URL)
 ├── requirements.txt
 ├── README.md
 ├── core/
-│   ├── config.py        # Chargement config JSON
-│   └── llm.py           # Client HTTP -> llama-server OU CLI -> ollama
+│   ├── config.py        # Chargement config JSON avec defaults
+│   └── llm.py           # Client HTTP → llama-server (API OpenAI compat)
 └── agent/
-    ├── architect.py     # Prompt -> SPEC.md
-    ├── coder.py         # SPEC.md -> fichiers .py via tool calls
-    ├── critic.py        # Verif spec vs code
-    ├── planner.py       # Critic -> plan de fix JSON
-    ├── prompts.py       # System prompts (Architect/Coder/Critic/Planner)
-    └── session.py       # Gestion dossier session + resultats
+    ├── architect.py     # Prompt → SPEC.md structurée
+    ├── coder.py         # SPEC.md → fichiers .py (blocs code Python)
+    ├── critic.py        # Vérification feature par feature
+    ├── planner.py       # Critic output → plan de fix JSON
+    ├── prompts.py       # System prompts (_ARCHITECT, _CODER, _CRITIC, _PLANNER)
+    └── session.py       # Gestion dossier session + résultats
 ```
 
-Sessions sauvegardees dans `~/nova-game-engine/sessions/<session_name>/` :
-- `SPEC.md` -- spec originale
-- `result.txt` -- verdict + review du Critic
-- `debug.log` -- log complet JSON Lines (avec --debug)
-- `game/` -- les fichiers Python du jeu
+---
+
+## Sessions
+
+Chaque session génère un dossier dans `~/nova-game-engine/sessions/<name>/` :
+
+```
+<session>/
+├── SPEC.md          # Spécification originale
+├── result.txt       # Verdict + review du Critic
+├── debug.log        # Log complet JSON Lines (--debug)
+└── game/            # Fichiers Python du jeu
+    ├── main.py
+    ├── constants.py
+    ├── entities.py
+    └── sound_manager.py
+```
 
 ### Format du debug.log
 
-Chaque ligne = un evenement JSON horodate :
+Chaque ligne = événement JSON horodaté :
 
 ```json
-{"ts": "2026-04-25T15:30:01.123", "event": "LLM_REQ", "step": "ARCHITECT", "data": {...}}
-{"ts": "2026-04-25T15:30:45.567", "event": "LLM_RESP", "step": "ARCHITECT", "data": {...}}
-{"ts": "2026-04-25T15:31:02.890", "event": "FILE_GENERATED", "step": "CODER", "data": {...}}
-{"ts": "2026-04-25T15:31:30.001", "event": "VERDICT", "step": "CRITIC", "data": {...}}
+{"ts": "2026-04-25T15:30:01.123", "event": "LLM_REQ", "step": "ARCHITECT", "data": {"agent": "architect", "model": "...", "prompt_len": 1234}}
+{"ts": "2026-04-25T15:30:45.567", "event": "LLM_RESP", "step": "ARCHITECT", "data": {"agent": "architect", "response_len": 5678, "duration_s": 45.2}}
+{"ts": "2026-04-25T15:31:02.890", "event": "FILE_GENERATED", "step": "CODER", "data": {"filename": "main.py", "size_bytes": 2345}}
+{"ts": "2026-04-25T15:31:30.001", "event": "VERDICT", "step": "CRITIC", "data": {"verdict": "ALL_COMPLETE", "review": "..."}}
 ```
 
-Evenements : `SESSION_START`, `LLM_REQ`, `LLM_RESP`, `FILE_GENERATED`, `VERDICT`, `DEBUG`, `INFO`, `ERROR`, `SESSION_DONE`.
+---
 
-En mode normal (sans --debug) : `LLM_REQ` et `LLM_RESP` ne contiennent que les meta-donnees (duree, taille) mais pas le prompt/reponse complet. Avec `--debug` : tout est logge.
+## Pipeline — détailagent paragent
+
+### 1. Architect
+
+Reçoit le prompt utilisateur. Produce a `SPEC.md` avec :
+
+```
+# Project: <nom>
+## Fichiers
+- `main.py` — ... (rôle précis)
+- `constants.py` — ... (rôle précis)
+...
+## Fonctionnalités
+1. <feature observable> — detail concret
+2. <feature observable> — detail concret
+...
+## Rendu
+<description visuelle>
+## Controles
+<liste des controles>
+## Contraintes techniques
+- Python 3 + pygame
+- Son procedural (numpy)
+...
+```
+
+**Règle :** chaque feature doit être vérifiable par le Critic (observable dans le code, pas une intention).
+
+### 2. Coder
+
+Reçoit la SPEC.md. Génère chaque fichier comme un bloc Markdown `` ```python ... ``` ``.
+
+**Parsing :** cherche le premier bloc ` ```python ` et le dernier ` ``` ` dans la réponse. Plus robuste que les tool calls `<tool>` qui échouent silencieusement.
+
+**Règle :** code complet, zéro placeholder, zéro TODO. Si le LLM hésite sur une feature, il laimplémente quand même de façon simple.
+
+### 3. Critic
+
+Reçoit SPEC.md + tous les fichiers générés. Check chaque feature :
+
+```
+FEATURE 1: [✓/✗] Description — fichier:lineno ou MISSING
+FEATURE 2: [✓/✗] Description — fichier:lineno ou MISSING
+...
+
+VERDICT: ALL_COMPLETE
+```
+ou
+```
+VERDICT: NEEDS_FIXES
+Top 3:
+1. [fichier] — reason
+2. [fichier] — reason
+```
+
+### 4. Planner
+
+Reçoit la sortie du Critic. Produit un JSON de fixes :
+
+```json
+[
+  {"file": "main.py", "reason": "manque pygame.init()"}
+]
+```
+
+### 5. Coder (fix)
+
+Reçoit le fichier actuel + reason. Réécrit le fichier complet avec le fix appliqué.
+
+---
+
+## Diagnostic — ce qui ne marchait pas et pourquoi
+
+| Symptôme | Cause | Solution appliquée |
+|----------|-------|-------------------|
+| Spec vague (`main game loop`) | Prompt Architect pas assez contraignant | Prompt avec format de sortie strict + exemples |
+| Fichiers corrompus (`obj['content']`) | Format `<tool>` fragile, parsing raté | Switch vers blocs ` ```python ` + validation syntaxe immédiate |
+| Code incomplet (stubs sans logique) | Coder générait 1 fichier → voyait pas les autres | Context cumulatif : chaque fichier déjà généré est ajouté au prompt |
+| Imports manquants ou en double | LLM pas guidé sur les imports standards | Prompt coder avec liste explicite des imports nécessaires |
+| Modèle 1.5B = garbage | Trop petit pour code complexe | 1.5B recommandé pour Planner uniquement; Architect/Coder = 3B minimum |
 
 ---
 
 ## Journal de tests
 
-| Date | Modele | Niveau | Spec OK | Code OK | Jouable | Notes |
-|------|--------|--------|---------|---------|---------|-------|
-| 2026-04-25 | (pas encore teste) | - | - | - | - | - |
-
-### Telechargements en cours
-
-Trois modeles Qwen en telechargement (HuggingFace -> ~/llm_models/) :
-
-```
-qwen-1.5b/  Qwen2.5-Coder-1.5B-Instruct-Q8_0.gguf   (~1.6Go) — en telechargement
-qwen-3b/    Qwen2.5-Coder-3B-Instruct-Q6_K.gguf    (~2.5Go) — en telechargement
-qwen-7b/    Qwen2.5-Coder-7B-Instruct-Q5_K_M.gguf  (~4.5Go) — en telechargement
-```
-
-Verifier l'avancement : `ls -lh ~/llm_models/qwen-*/`
-
----
-
-## Notes d'experimentation
-
-### llama-server sur laptop (CPU only)
-
-- Context size 8192 est le minimum pour que le Critic puisse verifier
-  plusieurs fichiers en une seule passe.
-- Threads (`-tb`) : autant que de cores dispo (8-12 sur un laptop recent).
-- premiere generation de spec = ~30-60s (selon modele)
-- cycle de fix = ~20-40s selon longueur du fix
-
-### Pieges observes
-
-- Le Coder LLM parfois ne parse pas correctement le tool call `write_file`
-  -> le critic detecte le fichier manquant -> deuxieme cycle corrige
-- Llama3-8b a tendance a generate des `import pygame` en double
-  dans certains fichiers -> Critic le detecte
-- Temperature 0.1 obligatoire : a 0 le modele peut boucler sur
-  des patterns repetitifs, a 0.5+ il sort du code hors spec
+| Date | Modèle | Prompt | Spec | Code | Syntax OK | Jouable | Notes |
+|------|--------|--------|------|------|-----------|---------|-------|
+| 2026-04-25 | Qwen 1.5B Q8 | "Space Invaders minimal avec son" | ✗ | ✗ | ✗ | - | Spec vague + fichiers corrompus |
+| 2026-04-25 | Qwen 3B Q6 | (pas encore testé) | - | - | - | - | - |
+| 2026-04-25 | Qwen 7B Q5 | (pas encore testé) | - | - | - | - | - |
 
 ---
 
 ## Pourquoi ce projet existe
 
-Pour les memes raisons que `local-intent-coder` :
-- LLMs locaux = inference rapide, pas de rate limit, pas de cloud
-- Game dev = iteration rapide, feedback visuel immediat
-- Le pattern Architect/Coder/Critic fonctionne bien pour des taches structurees
+- **LLMs locaux** = inférence rapide, zéro rate limit, données hors cloud
+- **Game dev** = itération rapide, feedback visuel immédiat
+- **Pattern Architect/Coder/Critic** = bien adapté aux tâches structurées avec vérification
+- **But final** = prompts suffisamment bons pour qu'un 3B produise du code production-ready sur n'importe quel petit projet Python
 
-Le moteur genere des jeux jouables en < 2 minutes sur un bon CPU.
+Le moteur doit devenir **neutre et générique** : à terme, un prompt du style "build a CLI todo app with SQLite" doit réussir sans modification du code.
 
 ---
 
 ## Projets voisins
 
 - [Nova-Atlas](https://github.com/nikodindon/nova-atlas) — AI news engine + radio
+- [Nova-Blog](https://github.com/nikodindon/nova-blog) — blog automation from Hermes sessions
 - [local-intent-coder](https://github.com/nikodindon/local-intent-coder) — code generator generaliste
-- [Nova-Blog](https://github.com/nikodindon/nova-blog) — blog automation
+- [Stellar Siege](https://github.com/nikodindon/stellar-siege) — Space Invaders de référence codé à la main

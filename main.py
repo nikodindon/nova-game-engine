@@ -55,7 +55,7 @@ class DebugLogger:
 
     def _write(self, event_type, step, data=None, msg=None):
         line = {
-            "ts": datetime.now().isoformat(timespec="millis"),
+            "ts": datetime.now().isoformat(timespec="milliseconds"),
             "event": event_type,
             "step": step,
             "msg": msg,
